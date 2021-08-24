@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import typing
+import itertools
 
 from collections import namedtuple
 from functools import lru_cache
@@ -9,6 +10,7 @@ from functools import lru_cache
 Item = namedtuple("Item", ['index', 'value', 'weight'])
 EItem = namedtuple("EItem", ["index", "profit", "weight", "value"])
 Node = namedtuple("Node",["value","room","estimate","parent","next_item","choosen","unchoosen"])
+DCell = namedtuple("Cell",["item_index","capacity"])
 
 # Algorithms -- Start
 def greedy(items: typing.List[Item], capacity: int):
@@ -23,7 +25,6 @@ def greedy(items: typing.List[Item], capacity: int):
             weight += item.weight
 
     return value, taken
-
 
 # Branch and bound -- Start
 @lru_cache(maxsize=None)
@@ -50,7 +51,6 @@ def prepare_root(items: typing.List[Item], capacity: int) -> Node:
         estimate=sum(i.value for i in items),
         parent=None, next_item=items[-1],
         choosen=set(), unchoosen=set())
-
 
 def branch_and_bound(items, capacity):
     value = 0
@@ -117,6 +117,71 @@ def branch_and_bound(items, capacity):
 
     return value, taken
 # Branch and bound -- End
+
+# Dynamic Programming -- Start
+def dynamic_table(items, capacity):
+
+    min_weight = min(i.weight for i in items)
+
+    table = {}
+    prev_item_index = None
+    for item in items:
+        # Prepare item main attributes
+        item_weight = item.weight
+        item_value = item.value
+
+        # for row_capacity in capacities:
+        for row_capacity in range(min_weight, capacity + 1):
+            cell_value = item_value if item_weight <= row_capacity else 0
+
+            if prev_item_index:
+                # Check if left sell has best value
+                left_cell_value = table.get(DCell(prev_item_index, row_capacity))
+                if left_cell_value:
+                    cell_value = max(left_cell_value, cell_value)
+
+                # Check could we improve past best result with new item
+                remain_weight = row_capacity - item_weight
+                if remain_weight > 0:
+                    remain_best_value = table.get(DCell(prev_item_index, remain_weight))
+                    if remain_best_value:
+                        cell_value = max(remain_best_value + item_value, cell_value)
+                # print("%s: %s" % (Cell(index, row_capacity), cell_value))
+            table[DCell(item.index, row_capacity)] = cell_value
+            # print(item, row_capacity, cell_value)
+        prev_item_index = item.index
+    return table
+
+
+def dynamic(items, capacity):
+    value = 0
+    taken = [0]*len(items)
+    f_items = [item for item in items if item.weight <= capacity]
+
+    table = dynamic_table(f_items, capacity)
+
+    current_capacity = capacity
+    for item in f_items[::-1]:
+        if item.weight > capacity:
+            continue
+        if item.index == 0:
+            v = table.get(DCell(item.index, current_capacity))
+            if v:
+                taken[item.index] = 1
+        else:
+            cur_cell = DCell(item.index, current_capacity)
+            prev_cell = DCell(f_items[item.index - 1].index, current_capacity)
+            if table.get(cur_cell) != table.get(prev_cell):
+                taken[item.index] = 1
+                current_capacity -= item.weight
+            if current_capacity == 0:
+                break
+
+    # value = table[DCell([i.index for i in items if i.weight < capacity][:-1], capacity)]
+    # value = sum(items[index].value if value == 1 else 0 for index, value in enumerate(taken))
+    value = table[DCell(len(f_items) - 1, capacity)]
+    return value, taken
+# Dynamic Programming -- End
 # Algorithms -- End
 
 def read_file(input_data):
@@ -136,14 +201,16 @@ def read_file(input_data):
     return capacity, items
 
 
-def solve_it(input_data, method="opt"):
+def solve_it(input_data, method="dp"):
     # Modify this code to run your optimization algorithm
 
     # parse the input
     capacity, items = read_file(input_data)
 
-    if method == "opt":
+    if method == "bb":
         value, taken = branch_and_bound(items, capacity)
+    if method == "dp":
+        value, taken = dynamic(items, capacity)
     else:
         value, taken = greedy(items, capacity)
 
